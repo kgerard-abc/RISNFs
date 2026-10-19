@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap">
 <style>
-:root{--bg:#F0ECE1;--fg:#1E2A32;--muted:#4E5860;--card:#E6E1D2;--line:#8F8570;--accent:#1E2A32;--gold:#93701F;--accent-soft:#DCD5C2;--sold:#92471F;--ctrl:#4E5860;--warn:#E9E1CC;--warn-line:#93701F;
---s0:#8F8570;--s1:#7A1F26;--s2:#92471F;--s3:#93701F;--s4:#5F8A6A;--s5:#3D6B52;--chip-fg:#fff;--link:#1E2A32;--chart-bg:#ffffff;--grid:#D9D2C2;
+:root{--bg:#F6F3EA;--fg:#1E2A32;--muted:#4E5860;--card:#EAE5D7;--line:#8F8570;--accent:#1E2A32;--gold:#93701F;--accent-soft:#E2DCCA;--sold:#92471F;--ctrl:#4E5860;--warn:#E9E1CC;--warn-line:#93701F;
+--s0:#8C8575;--s1:#6E1A20;--s2:#C4612F;--s3:#D4A82E;--s4:#5F9E6E;--s5:#1F5137;--chip-fg:#fff;--link:#1E2A32;--chart-bg:#ffffff;--grid:#D9D2C2;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#191E1A;--fg:#E8E4D8;--muted:#A2A99C;--card:#20251F;--line:#6E6F5A;--accent:#E8E4D8;--gold:#C9A44C;--accent-soft:#2E342D;--sold:#C98757;--ctrl:#A2A99C;--warn:#302219;--warn-line:#C9A44C;--link:#E8E4D8;--s0:#6E6F5A;--s1:#D98891;--s2:#C98757;--s3:#C9A44C;--s4:#82AC94;--s5:#5FA37C;--chip-fg:#17201A;--chart-bg:#171C16;--grid:#333A31}}
 :root[data-theme="dark"]{--bg:#191E1A;--fg:#E8E4D8;--muted:#A2A99C;--card:#20251F;--line:#6E6F5A;--accent:#E8E4D8;--gold:#C9A44C;--accent-soft:#2E342D;--sold:#C98757;--ctrl:#A2A99C;--warn:#302219;--warn-line:#C9A44C;--link:#E8E4D8;--s0:#6E6F5A;--s1:#D98891;--s2:#C98757;--s3:#C9A44C;--s4:#82AC94;--s5:#5FA37C;--chip-fg:#17201A;--chart-bg:#171C16;--grid:#333A31}
@@ -73,7 +73,8 @@ th button:focus-visible{outline:2px solid var(--gold)}
 td.num,th.num{text-align:center;white-space:nowrap}
 .tblwrap{overflow-x:auto;max-height:640px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .chip{display:inline-block;min-width:1.6em;padding:1px 6px;border-radius:6px;text-align:center;font-weight:700;color:var(--chip-fg)}
-.chip.s0{background:var(--s0);color:#fff}.chip.s1{background:var(--s1)}.chip.s2{background:var(--s2)}.chip.s3{background:var(--s3)}.chip.s4{background:var(--s4)}.chip.s5{background:var(--s5)}
+.chip.s0{background:var(--s0);color:#fff}.chip.s3,.chip.s4{color:#17201A}
+.chip.s1{background:var(--s1)}.chip.s2{background:var(--s2)}.chip.s3{background:var(--s3)}.chip.s4{background:var(--s4)}.chip.s5{background:var(--s5)}
 .chip.na{background:transparent;color:var(--muted);font-weight:400}
 .arrow{color:var(--muted);margin:0 2px}
 .linkbtn{all:unset;color:var(--link);cursor:pointer;text-decoration:underline}
@@ -201,8 +202,22 @@ function drawChart(box, o) {
   xt.forEach(t => { svg.append(sv('line', { x1: X(t.v), x2: X(t.v), y1: T, y2: T + ph, stroke: css('--grid'), 'stroke-dasharray': '2 4' }), sv('text', { x: X(t.v), y: H - 10, 'text-anchor': 'middle', 'font-size': 11, fill: css('--muted') }, t.l)); });
   (o.bands || []).forEach(b => { const xa = X(b.x0), xb = X(b.x1); svg.append(sv('rect', { x: xa, y: T, width: Math.max(2, xb - xa), height: ph, fill: css('--line'), opacity: .55 }, sv('title', {}, b.label)), (xb - xa) > 46 ? sv('text', { x: (xa + xb) / 2, y: T + ph / 2, 'text-anchor': 'middle', 'font-size': 11, fill: css('--muted') }, b.short || 'Not rated') : null); });
   if (o.stack) {
-    const gap = xs.length > 1 ? Math.min(...xs.slice(1).map((v, i) => v - xs[i])) : 1, bw = Math.max(2, gap / (x1 - x0 || 1) * pw * 1.0);
-    o.stack.forEach((col, i) => { const tot = col.reduce((a, b) => a + b, 0) || 1; let acc = 0; col.forEach((c, k) => { const y_a = Y(acc / tot * 100), y_b = Y((acc + c) / tot * 100); acc += c; svg.append(sv('rect', { x: X(xs[i]) - bw / 2, y: y_b, width: bw, height: Math.max(0, y_a - y_b), fill: o.stackColors ? o.stackColors[k] : css('--s' + (k + 1)) })); }); });
+    // stacked area: one band per category, far more legible than one thin bar per month
+    const nb = o.stack[0].length;
+    const cum = o.stack.map(col => { const tot = col.reduce((a, b) => a + b, 0) || 1; let acc = 0; return col.map(c => { acc += c; return acc / tot * 100; }); });
+    const MAXGAP = 70 * 864e5, runs = []; let cur = [0];
+    for (let i = 1; i < xs.length; i++) { if (xs[i] - xs[i - 1] > MAXGAP) { runs.push(cur); cur = [i]; } else cur.push(i); }
+    runs.push(cur);
+    const edge = (run, k) => run.map((i, j) => (j ? 'L' : 'M') + X(xs[i]).toFixed(1) + ',' + Y(cum[i][k]).toFixed(1)).join('');
+    for (let k = nb - 1; k >= 0; k--) runs.forEach(run => {                      // back to front: each fill covers the one below
+      if (run.length < 2) return;
+      const d = edge(run, k) + 'L' + X(xs[run[run.length - 1]]).toFixed(1) + ',' + Y(0).toFixed(1) + 'L' + X(xs[run[0]]).toFixed(1) + ',' + Y(0).toFixed(1) + 'Z';
+      svg.append(sv('path', { d, fill: o.stackColors ? o.stackColors[k] : css('--s' + (k + 1)) }));
+    });
+    for (let k = 0; k < nb - 1; k++) runs.forEach(run => {                       // thin surface rule between bands
+      if (run.length < 2) return;
+      svg.append(sv('path', { d: edge(run, k), fill: 'none', stroke: css('--chart-bg'), 'stroke-width': 1 }));
+    });
   } else {
     [...o.series].sort((a, b) => (a.z || 0) - (b.z || 0)).forEach(s => { let d = '', pen = false; s.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + X(xs[i]).toFixed(1) + ' ' + Y(v).toFixed(1); pen = true; });
       svg.append(sv('path', { d, fill: 'none', stroke: s.color, 'stroke-width': s.width || 2.2, 'stroke-dasharray': s.dash || '', 'stroke-linejoin': 'round' })); });
@@ -288,7 +303,7 @@ const TRENDS = { mix: { label: 'Star ratings mix' }, avg: { label: 'Average star
 function drawTrend() {
   const box = $('#trend-chart'), lg = $('#trend-legend'), note = $('#trend-note'); lg.replaceChildren(); const xl = (v, i) => fmtMon(D.dates[i]);
   if (trendKey === 'mix') { drawChart(box, { x: X, stack: st.dist.map((d, i) => [st.nr[i]].concat(d)), stackColors: [0, 1, 2, 3, 4, 5].map(k => css('--s' + k)), stackLabels: ['0 stars (not rated: special focus facility)', '1 star', '2 stars', '3 stars', '4 stars', '5 stars'], ymin: 0, ymax: 100, yfmt: v => v + '%', xlabel: xl, aria: 'Share of homes at each star rating over time' });
-    [0, 1, 2, 3, 4, 5].forEach(k => lg.append(el('span', {}, el('i', { style: `border-color:var(--s${k});border-top-width:9px` }), k === 0 ? '0 = not rated (special focus facility)' : k + (k === 1 ? ' star' : ' stars')))); note.textContent = 'One bar per monthly CMS file; a blank gap is a month with no file in the archive (CMS did not publish one, or it is missing). Share of Rhode Island homes at each overall star rating in each file. Gray at the bottom is homes CMS did not rate because they are in its Special Focus Facility program, counted as 0 stars. Rating calculations have been revised by CMS over time.'; }
+    [0, 1, 2, 3, 4, 5].forEach(k => lg.append(el('span', {}, el('i', { style: `border-color:var(--s${k});border-top-width:9px` }), k === 0 ? '0 = not rated (special focus facility)' : k + (k === 1 ? ' star' : ' stars')))); note.textContent = 'One point per monthly CMS file; the band breaks where the archive has no file for a month (CMS did not publish one, or it is missing). Share of Rhode Island homes at each overall star rating in each file. Gray at the bottom is homes CMS did not rate because they are in its Special Focus Facility program, counted as 0 stars. Rating calculations have been revised by CMS over time.'; }
   if (trendKey === 'avg') { drawChart(box, { x: X, ymin: 1, ymax: 5, yfmt: v => v.toFixed(1), xlabel: xl, tfmt: v => v.toFixed(2), aria: 'Average star ratings over time', series: [
       { name: 'Overall', color: css('--accent'), values: st.avg_overall, width: 3 }, { name: 'Health inspection', color: css('--s2'), values: st.avg_hi }, { name: 'Staffing', color: css('--s4'), values: st.avg_staffing }, { name: 'Quality measures', color: css('--ctrl'), values: st.avg_qm, dash: '5 4' }] });
     [['Overall', '--accent'], ['Health inspection', '--s2'], ['Staffing', '--s4'], ['Quality measures (dashed)', '--ctrl']].forEach(a => lg.append(el('span', {}, el('i', { class: a[0].includes('dashed') ? 'dash' : '', style: `border-color:var(${a[1]})` }), a[0]))); note.textContent = 'Average of the four CMS star ratings across homes in each file (5 is best). Special focus facilities, which CMS leaves unrated, count as 0.'; }
@@ -394,8 +409,10 @@ const KIND_LBL = { mgmt: 'Buyer took over management', closed: 'Closed', sale: '
 let curFac = null;
 function showFacility(id, scroll) {
   const f = D.facilities.find(x => x.id === id); if (!f) return; curFac = id; const box = $('#profile'); box.replaceChildren();
+  const gsec = $('#groups'); if (gsec) gsec.classList.add('hidden');            // statewide owner-group table is not about this home
+  const closeFac = () => { curFac = null; box.replaceChildren(); if (gsec) gsec.classList.remove('hidden'); if (location.hash.startsWith('#home=')) history.replaceState(null, '', location.pathname + location.search + '#lookup'); };
   const nowB = (label, v, fmt) => el('div', { class: 'badge' }, label, el('b', {}, v == null ? '\u2013' : (fmt ? fmt(v) : v)));
-  const head = el('div', { class: 'panel' }, el('h3', { style: 'margin-top:0', text: f.name }), el('div', { class: 'small', text: [f.town, f.county ? f.county + ' County' : null, f.status, f.beds ? f.beds + ' certified beds' : null].filter(Boolean).join(' \u00B7 ') }));
+  const head = el('div', { class: 'panel' }, el('button', { class: 'btn', style: 'float:right;margin-left:12px', text: 'Close', onclick: closeFac }), el('h3', { style: 'margin-top:0', text: f.name }), el('div', { class: 'small', text: [f.town, f.county ? f.county + ' County' : null, f.status, f.beds ? f.beds + ' certified beds' : null].filter(Boolean).join(' \u00B7 ') }));
   if (f.former && f.former.length) head.append(el('p', {}, el('b', { text: 'Also known as / formerly: ' }), f.former.map(x => x.name + (x.src === 'CMS listing' && x.to ? ` (CMS name through ${fmtMon(x.to)})` : x.src === 'CEC standard name' ? ' (name used in the state review record)' : '')).join('; ')));
   if (f.owner || f.chain) head.append(el('p', { class: 'small', text: ['CMS lists the operator as ' + (f.owner || 'not stated'), f.chain ? 'chain: ' + f.chain : null, f.ownership_type].filter(Boolean).join(' \u00B7 ') }));
   if (f.now) { head.append(el('div', { class: 'badges' }, el('div', { class: 'badge' }, 'Overall stars', el('div', {}, chip(f.now.overall))), el('div', { class: 'badge' }, 'Health inspection', el('div', {}, chip(f.now.hi))), el('div', { class: 'badge' }, 'Staffing', el('div', {}, chip(f.now.staffing))), el('div', { class: 'badge' }, 'Quality measures', el('div', {}, chip(f.now.qm))),
