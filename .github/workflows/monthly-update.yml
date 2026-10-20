@@ -22,8 +22,8 @@ permissions:
   contents: write
 
 env:
-  # The INTERNAL Google Sheet (must be shared "Anyone with the link can view"). Replace PUT_SHEET_ID_HERE.
-  MASTER_SHEET_ID: PUT_SHEET_ID_HERE
+  # The INTERNAL Google Sheet (must be shared "Anyone with the link can view"). Replace 
+  MASTER_SHEET_ID: 1PAgtaNxnLerzBGVojlxgp-yB7N89msak6giJh4Sg6Wk
 
 jobs:
   update:
