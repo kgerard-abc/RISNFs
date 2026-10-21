@@ -55,6 +55,12 @@ jobs:
           cp index.html pipeline/index.previous.html
           python3 pipeline/build_site.py "$MASTER_SHEET_ID"
 
+      - name: Compare with the live page
+        if: steps.fetch.outputs.new == 'yes'
+        continue-on-error: true
+        run: |
+          python3 pipeline/compare_live.py 2>&1 | while IFS= read -r l; do echo "::notice::DIFF: $l"; done
+
       - name: Safety checks before anything is published
         if: steps.fetch.outputs.new == 'yes'
         run: |
