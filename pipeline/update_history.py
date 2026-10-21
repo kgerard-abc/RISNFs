@@ -105,6 +105,7 @@ def main(force=False):
     if month in have_months and not force:
         print(f"NOTHING NEW: CMS month {month} is already in the history.")
         return
+    print(f"catalog date {newest}; data date {snapshot_date}; CMS month {month}; newest saved {have.max()}; RI rows {len(probe)}")
     if snapshot_date <= have.max() and not force:
         die(f"new data is dated {snapshot_date}, not later than the newest saved ({have.max()}). Use force if this is intended.")
     if len(probe) < 50:
