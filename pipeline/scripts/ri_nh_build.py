@@ -739,6 +739,7 @@ def build_public_data(M, S, val, cec, mp, ccn_of, fn, cfg):
                          label=TYPE_LABEL.get(r.type, r.type), buyer=pubtxt(r.buyer), who=pubtxt(r.applicant, True) or '', outcome=nz(r.outcome), has_cms=bool(r.has_data), before_date=_d(r.before), cms_op=_d(r.cms_detected),
                          m={k: dict(before=_r(getattr(r, f'{k}_before'), 2), y1=_r(getattr(r, f'{k}_y1'), 2), y2=_r(getattr(r, f'{k}_y2'), 2), exit=_r(getattr(r, f'{k}_exit'), 2)) for k in ('overall', 'staffing', 'hours', 'turnover')},
                          ser=dict(before=nz(r.ser_before), y1=nz(r.ser_y1), y2=nz(r.ser_y2)), fines=dict(before=nz(r.fines_before), y1=nz(r.fines_y1), y2=nz(r.fines_y2))))
+    rows = [r for r in rows if r['date']]          # a sale with no recorded date is left out of the table
     for r in rows:
         for k in ('ser', 'fines'):
             r[k] = {a: (None if nz(b) is None else round(float(b))) for a, b in r[k].items()}
