@@ -97,11 +97,16 @@ def main(force=False):
     if col is None or probe[col].dropna().empty:
         die("could not read the processing date from the CMS provider file")
     month = pd.to_datetime(probe[col], errors="coerce", format="mixed").dt.strftime("%Y-%m").mode().iloc[0]
+    # Use the date CMS stamps on the data (like the earlier months), not the catalog's "modified" date.
+    pdate = pd.to_datetime(probe[col], errors="coerce", format="mixed").dropna()
+    snapshot_date = pdate.dt.strftime("%Y-%m-%d").mode().iloc[0]
     have = pd.read_csv(os.path.join(HIST, "providerinfo.csv.gz"), dtype=str, usecols=["snapshot_date"])["snapshot_date"]
     have_months = {d[:7] for d in have.unique()}
     if month in have_months and not force:
         print(f"NOTHING NEW: CMS month {month} is already in the history.")
         return
+    if snapshot_date <= have.max() and not force:
+        die(f"new data is dated {snapshot_date}, not later than the newest saved ({have.max()}). Use force if this is intended.")
     if len(probe) < 50:
         die(f"only {len(probe)} Rhode Island providers found in the new CMS file (expected about 70-90)")
     for key, (u, base) in urls.items():
