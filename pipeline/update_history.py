@@ -64,11 +64,11 @@ def append(name, new):
     missing = [c for c in old.columns if c not in new.columns]
     extra = [c for c in new.columns if c not in old.columns]
     if len(missing) > 0.25 * len(old.columns):
-        die(f"{name}: new CMS file is missing {len(missing)} of {len(old.columns)} expected columns, e.g. {missing[:6]}. CMS may have renamed columns.")
+        die(f"{name}: new CMS file is missing {len(missing)} of {len(old.columns)} expected columns, e.g. {missing}. CMS may have renamed columns.")
     if extra:
         print(f"NOTE {name}: {len(extra)} new CMS column(s) not kept: {extra[:6]}")
     if missing:
-        print(f"NOTE {name}: {len(missing)} expected column(s) absent this month (left blank): {missing[:6]}")
+        print(f"NOTE {name}: {len(missing)} expected column(s) absent this month (left blank): {missing}")
     out = pd.concat([old, new.reindex(columns=old.columns)], ignore_index=True)
     out.to_csv(path, index=False, compression="gzip")
     print(f"{name}: added {len(new)} RI rows for {snap}; history now {len(out)} rows")
@@ -76,19 +76,35 @@ def append(name, new):
 
 def main(force=False):
     items = json.loads(get(CATALOG))
-    nh = [i for i in items if "nursing home" in json.dumps([i.get("theme"), i.get("title")]).lower()]
-    urls, newest = {}, ""
-    for i in nh:
+    # Look at every CSV the catalog lists and match on the file name itself.
+    # The nursing home files are named like NH_ProviderInfo_Sep2026.csv.
+    cands, seen = {}, []
+    for i in items:
+        mod = str(i.get("modified", ""))[:10]
         for d in i.get("distribution", []) or []:
+            if isinstance(d, dict) and isinstance(d.get("data"), dict):
+                d = d["data"]                      # the catalog nests the real entry under "data"
+            if not isinstance(d, dict):
+                continue
             u = d.get("downloadURL") or ""
-            base = os.path.basename(u.split("?")[0])
+            path = u.split("?")[0]
+            if not path.lower().endswith(".csv"):
+                continue
+            base = os.path.basename(path)
+            if re.search(r"NH[_-]|nursing", base, re.I):
+                seen.append(base)
             for key, frag in FILES.items():
-                if base.lower().endswith(".csv") and re.search(r"(^|_|-)" + frag + r"(_|\.|$)", base, re.I):
-                    urls[key] = (u, base)
-                    newest = max(newest, str(i.get("modified", ""))[:10])
-    miss = [k for k in FILES if k not in urls]
+                if re.search(r"(^|[_-])NH[_-]" + frag + r"([_.]|$)", base, re.I):
+                    cands.setdefault(key, []).append((mod, u, base))
+    miss = [k for k in FILES if k not in cands]
     if miss:
-        die(f"CMS catalog did not list: {miss}")
+        die(f"CMS catalog did not list: {miss}. CSV names seen that look like nursing home files: {sorted(set(seen))[:12]}")
+    urls, newest = {}, ""
+    for key, lst in cands.items():
+        mod, u, base = sorted(lst)[-1]          # newest if the catalog lists more than one
+        urls[key] = (u, base)
+        newest = max(newest, mod)
+    print("CMS files: " + ", ".join(sorted(b for _, b in urls.values())))
     snapshot_date = newest or datetime.now().strftime("%Y-%m-%d")
     raws = {k: get(u) for k, (u, _) in urls.items()}
     # which month is this? read it from the provider file
@@ -105,6 +121,7 @@ def main(force=False):
     if month in have_months and not force:
         print(f"NOTHING NEW: CMS month {month} is already in the history.")
         return
+    print(f"catalog date {newest}; data date {snapshot_date}; CMS month {month}; newest saved {have.max()}; RI rows {len(probe)}")
     if snapshot_date <= have.max() and not force:
         die(f"new data is dated {snapshot_date}, not later than the newest saved ({have.max()}). Use force if this is intended.")
     if len(probe) < 50:
@@ -114,5 +131,31 @@ def main(force=False):
     print(f"READY: added CMS month {month} (snapshot {snapshot_date}).")
 
 
+def inspect():
+    raw = get(CATALOG)
+    print(f"catalog bytes {len(raw)}")
+    items = json.loads(raw)
+    if isinstance(items, dict):
+        print("top-level keys:", list(items)[:10])
+        items = items.get("data") or items.get("results") or []
+    print(f"items {len(items)}")
+    if items:
+        print("item keys:", list(items[0])[:20])
+    nh = [i for i in items if "nursing" in json.dumps(i.get("title", "")).lower()]
+    print(f"items with 'nursing' in the title: {len(nh)}")
+    for i in nh[:4]:
+        print("TITLE:", str(i.get("title"))[:90], "| modified", i.get("modified"))
+        for d in (i.get("distribution") or [])[:4]:
+            if isinstance(d, dict):
+                print("   dist keys:", list(d)[:8], "| url:", str(d.get("downloadURL") or d.get("accessURL") or d.get("identifier"))[:140])
+            else:
+                print("   dist (not a dict):", str(d)[:140])
+    if not nh and items:
+        print("sample titles:", [str(i.get("title"))[:40] for i in items[:6]])
+
+
 if __name__ == "__main__":
-    main(force="--force" in sys.argv)
+    if "--inspect" in sys.argv:
+        inspect()
+    else:
+        main(force="--force" in sys.argv)

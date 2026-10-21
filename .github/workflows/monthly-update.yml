@@ -43,7 +43,10 @@ jobs:
         run: |
           if [ "${{ inputs.rebuild_only }}" = "true" ]; then echo "new=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [ "${{ inputs.force }}" = "true" ]; then F="--force"; else F=""; fi
-          python3 pipeline/update_history.py $F | tee fetch.log
+          set -o pipefail
+          if python3 pipeline/update_history.py $F 2>&1 | tee fetch.log; then ok=1; else ok=0; fi
+          while IFS= read -r line; do echo "::notice::CMS: $line"; done < fetch.log
+          if [ "$ok" = "0" ]; then echo "::error::The CMS download step failed (see the notices above)."; exit 1; fi
           if grep -q "NOTHING NEW" fetch.log; then echo "new=no" >> "$GITHUB_OUTPUT"; else echo "new=yes" >> "$GITHUB_OUTPUT"; fi
 
       - name: Build the page and workbook
@@ -51,6 +54,12 @@ jobs:
         run: |
           cp index.html pipeline/index.previous.html
           python3 pipeline/build_site.py "$MASTER_SHEET_ID"
+
+      - name: Compare with the live page
+        if: steps.fetch.outputs.new == 'yes'
+        continue-on-error: true
+        run: |
+          python3 pipeline/compare_live.py 2>&1 | while IFS= read -r l; do echo "::notice::DIFF: $l"; done
 
       - name: Safety checks before anything is published
         if: steps.fetch.outputs.new == 'yes'
@@ -64,8 +73,10 @@ jobs:
           if new['meta']['latest'] < old['meta']['latest']: bad.append(f"latest date went backwards: {old['meta']['latest']} to {new['meta']['latest']}")
           if len(new['facilities']) < len(old['facilities']): bad.append(f"facilities dropped from {len(old['facilities'])} to {len(new['facilities'])}")
           if len(new['sales']) < len(old['sales']): bad.append(f"sales dropped from {len(old['sales'])} to {len(new['sales'])}")
-          if bad: print("STOPPED:", *bad, sep="\n  "); sys.exit(1)
-          print("Latest data:", new['meta']['updated'], "| facilities:", len(new['facilities']), "| sales:", len(new['sales']))
+          print(f"::notice::Page now: latest {new['meta']['latest']}, {len(new['facilities'])} facilities, {len(new['sales'])} sales (was: latest {old['meta']['latest']}, {len(old['facilities'])} facilities, {len(old['sales'])} sales)")
+          if bad:
+              for b in bad: print(f"::error::STOPPED: {b}")
+              sys.exit(1)
           PY
           python3 .github/scripts/check_site.py || echo "::warning::Site check reported problems (see log). Known: 9 sales without dates."
 
