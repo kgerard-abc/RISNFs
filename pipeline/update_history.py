@@ -82,6 +82,10 @@ def main(force=False):
     for i in items:
         mod = str(i.get("modified", ""))[:10]
         for d in i.get("distribution", []) or []:
+            if isinstance(d, dict) and isinstance(d.get("data"), dict):
+                d = d["data"]                      # the catalog nests the real entry under "data"
+            if not isinstance(d, dict):
+                continue
             u = d.get("downloadURL") or ""
             path = u.split("?")[0]
             if not path.lower().endswith(".csv"):
