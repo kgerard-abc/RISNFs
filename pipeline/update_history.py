@@ -76,19 +76,31 @@ def append(name, new):
 
 def main(force=False):
     items = json.loads(get(CATALOG))
-    nh = [i for i in items if "nursing home" in json.dumps([i.get("theme"), i.get("title")]).lower()]
-    urls, newest = {}, ""
-    for i in nh:
+    # Look at every CSV the catalog lists and match on the file name itself.
+    # The nursing home files are named like NH_ProviderInfo_Sep2026.csv.
+    cands, seen = {}, []
+    for i in items:
+        mod = str(i.get("modified", ""))[:10]
         for d in i.get("distribution", []) or []:
             u = d.get("downloadURL") or ""
-            base = os.path.basename(u.split("?")[0])
+            path = u.split("?")[0]
+            if not path.lower().endswith(".csv"):
+                continue
+            base = os.path.basename(path)
+            if re.search(r"NH[_-]|nursing", base, re.I):
+                seen.append(base)
             for key, frag in FILES.items():
-                if base.lower().endswith(".csv") and re.search(r"(^|_|-)" + frag + r"(_|\.|$)", base, re.I):
-                    urls[key] = (u, base)
-                    newest = max(newest, str(i.get("modified", ""))[:10])
-    miss = [k for k in FILES if k not in urls]
+                if re.search(r"(^|[_-])NH[_-]" + frag + r"([_.]|$)", base, re.I):
+                    cands.setdefault(key, []).append((mod, u, base))
+    miss = [k for k in FILES if k not in cands]
     if miss:
-        die(f"CMS catalog did not list: {miss}")
+        die(f"CMS catalog did not list: {miss}. CSV names seen that look like nursing home files: {sorted(set(seen))[:12]}")
+    urls, newest = {}, ""
+    for key, lst in cands.items():
+        mod, u, base = sorted(lst)[-1]          # newest if the catalog lists more than one
+        urls[key] = (u, base)
+        newest = max(newest, mod)
+    print("CMS files: " + ", ".join(sorted(b for _, b in urls.values())))
     snapshot_date = newest or datetime.now().strftime("%Y-%m-%d")
     raws = {k: get(u) for k, (u, _) in urls.items()}
     # which month is this? read it from the provider file
