@@ -64,11 +64,11 @@ def append(name, new):
     missing = [c for c in old.columns if c not in new.columns]
     extra = [c for c in new.columns if c not in old.columns]
     if len(missing) > 0.25 * len(old.columns):
-        die(f"{name}: new CMS file is missing {len(missing)} of {len(old.columns)} expected columns, e.g. {missing[:6]}. CMS may have renamed columns.")
+        die(f"{name}: new CMS file is missing {len(missing)} of {len(old.columns)} expected columns, e.g. {missing}. CMS may have renamed columns.")
     if extra:
         print(f"NOTE {name}: {len(extra)} new CMS column(s) not kept: {extra[:6]}")
     if missing:
-        print(f"NOTE {name}: {len(missing)} expected column(s) absent this month (left blank): {missing[:6]}")
+        print(f"NOTE {name}: {len(missing)} expected column(s) absent this month (left blank): {missing}")
     out = pd.concat([old, new.reindex(columns=old.columns)], ignore_index=True)
     out.to_csv(path, index=False, compression="gzip")
     print(f"{name}: added {len(new)} RI rows for {snap}; history now {len(out)} rows")
