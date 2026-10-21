@@ -127,5 +127,31 @@ def main(force=False):
     print(f"READY: added CMS month {month} (snapshot {snapshot_date}).")
 
 
+def inspect():
+    raw = get(CATALOG)
+    print(f"catalog bytes {len(raw)}")
+    items = json.loads(raw)
+    if isinstance(items, dict):
+        print("top-level keys:", list(items)[:10])
+        items = items.get("data") or items.get("results") or []
+    print(f"items {len(items)}")
+    if items:
+        print("item keys:", list(items[0])[:20])
+    nh = [i for i in items if "nursing" in json.dumps(i.get("title", "")).lower()]
+    print(f"items with 'nursing' in the title: {len(nh)}")
+    for i in nh[:4]:
+        print("TITLE:", str(i.get("title"))[:90], "| modified", i.get("modified"))
+        for d in (i.get("distribution") or [])[:4]:
+            if isinstance(d, dict):
+                print("   dist keys:", list(d)[:8], "| url:", str(d.get("downloadURL") or d.get("accessURL") or d.get("identifier"))[:140])
+            else:
+                print("   dist (not a dict):", str(d)[:140])
+    if not nh and items:
+        print("sample titles:", [str(i.get("title"))[:40] for i in items[:6]])
+
+
 if __name__ == "__main__":
-    main(force="--force" in sys.argv)
+    if "--inspect" in sys.argv:
+        inspect()
+    else:
+        main(force="--force" in sys.argv)

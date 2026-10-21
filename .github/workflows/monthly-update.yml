@@ -44,6 +44,7 @@ jobs:
           if [ "${{ inputs.rebuild_only }}" = "true" ]; then echo "new=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [ "${{ inputs.force }}" = "true" ]; then F="--force"; else F=""; fi
           set -o pipefail
+          python3 pipeline/update_history.py --inspect 2>&1 | while IFS= read -r l; do echo "::notice::INSPECT: $l"; done
           if python3 pipeline/update_history.py $F 2>&1 | tee fetch.log; then ok=1; else ok=0; fi
           while IFS= read -r line; do echo "::notice::CMS: $line"; done < fetch.log
           if [ "$ok" = "0" ]; then echo "::error::The CMS download step failed (see the notices above)."; exit 1; fi
