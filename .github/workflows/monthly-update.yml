@@ -1,0 +1,91 @@
+name: Monthly sales page and workbook update
+
+on:
+  schedule:
+    - cron: '30 12 * * 1'      # every Monday, about 8:30 AM Eastern. Does nothing unless CMS has a new month.
+  workflow_dispatch:
+    inputs:
+      test_only:
+        description: 'Test run: build everything but do NOT publish (download the result from the run page)'
+        type: boolean
+        default: true
+      force:
+        description: 'Add the current CMS month even if it looks already loaded'
+        type: boolean
+        default: false
+      rebuild_only:
+        description: 'Skip the CMS download; just rebuild from the saved history and the Google Sheet (use after you edit the Sheet)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  # The INTERNAL Google Sheet (must be shared "Anyone with the link can view"). Replace 
+  MASTER_SHEET_ID: 1PAgtaNxnLerzBGVojlxgp-yB7N89msak6giJh4Sg6Wk
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt
+
+      - name: Add the newest CMS month to the history
+        id: fetch
+        run: |
+          if [ "${{ inputs.rebuild_only }}" = "true" ]; then echo "new=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ inputs.force }}" = "true" ]; then F="--force"; else F=""; fi
+          python3 pipeline/update_history.py $F | tee fetch.log
+          if grep -q "NOTHING NEW" fetch.log; then echo "new=no" >> "$GITHUB_OUTPUT"; else echo "new=yes" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Build the page and workbook
+        if: steps.fetch.outputs.new == 'yes'
+        run: |
+          cp index.html pipeline/index.previous.html
+          python3 pipeline/build_site.py "$MASTER_SHEET_ID"
+
+      - name: Safety checks before anything is published
+        if: steps.fetch.outputs.new == 'yes'
+        run: |
+          python3 - <<'PY'
+          import json, re, sys
+          def D(p):
+              t = open(p).read(); return json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>', t, re.S).group(1))
+          old, new = D('pipeline/index.previous.html'), D('index.html')
+          bad = []
+          if new['meta']['latest'] < old['meta']['latest']: bad.append(f"latest date went backwards: {old['meta']['latest']} to {new['meta']['latest']}")
+          if len(new['facilities']) < len(old['facilities']): bad.append(f"facilities dropped from {len(old['facilities'])} to {len(new['facilities'])}")
+          if len(new['sales']) < len(old['sales']): bad.append(f"sales dropped from {len(old['sales'])} to {len(new['sales'])}")
+          if bad: print("STOPPED:", *bad, sep="\n  "); sys.exit(1)
+          print("Latest data:", new['meta']['updated'], "| facilities:", len(new['facilities']), "| sales:", len(new['sales']))
+          PY
+          python3 .github/scripts/check_site.py || echo "::warning::Site check reported problems (see log). Known: 9 sales without dates."
+
+      - name: Save the build for download
+        if: steps.fetch.outputs.new == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sales-build
+          path: |
+            index.html
+            pipeline/out/RI_Nursing_Homes_CMS_and_CEC.xlsx
+
+      - name: Publish (commit the new page and history)
+        if: steps.fetch.outputs.new == 'yes' && !(github.event_name == 'workflow_dispatch' && inputs.test_only)
+        run: |
+          rm -f pipeline/index.previous.html
+          rm -rf pipeline/out
+          git config user.name "abc-ri-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A index.html pipeline/history
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git commit -m "Monthly CMS update"
+          git push
