@@ -23,5 +23,8 @@ def walk(a, b, path=""):
     elif a != b:
         diffs.append(f"{path}: live {a!r} vs new {b!r}")
 walk(live, new)
+import collections, re as _re
+groups = collections.Counter(_re.sub(r"\[\d+\]", "[]", d.split(":")[0]) for d in diffs)
 print(f"{len(diffs)} difference(s) between the live page and this build")
-for d in diffs[:60]: print("  " + d)
+for g, n in groups.most_common(6): print(f"  {g}: {n}")
+for d in diffs[:3]: print("  example: " + d)
