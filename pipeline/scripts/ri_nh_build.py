@@ -16,6 +16,7 @@ DEFAULT_CONFIG = dict(
     ],
     max_plausible_turnover=90,      # nursing staff turnover (%) at or above this is CMS's 'lowest possible score' for missing payroll data: blanked and flagged
     ccn_notes_seed={'Pawtuxet Village Care and Rehabilitation Center': 'Closed April 2012. No CCN exists.'},   # notes added to the CCN Map the first time a name appears
+    closed_seed={'415107': 'Closed January 2025'},   # homes CMS still lists that have closed (CCN: 'Closed <Month> <Year>'); a 'Closed ...' note in the CCN Map does the same and wins
     max_gap_days=45,
     series_start='2019-04-09',      # first CMS file after the April 2019 star-rating method change (statewide average fell 3.8 -> 3.35 in one month)                # a grid date needs a CMS file within this many days
     page_title='Rhode Island nursing homes: quality trends and what happened when homes were sold',
@@ -382,6 +383,20 @@ def build_ccn_map(cec, M):
         rows.append(dict(name=n, ccn=ccn, cms_name=cms_name, how=how, note=note))
     return rows
 
+MONTHS_ = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+
+def closed_notes(mp, cfg):
+    """CCN -> (label, first day of the month) for homes marked 'Closed <Month> <Year>' in the CCN Map notes or cfg closed_seed.
+    Used for homes CMS keeps listing after they close."""
+    out = {}
+    def take(ccn, text):
+        m = re.match(r'\s*closed\s+([a-z]+)\s+(\d{4})', str(text or ''), re.I)
+        if ccn and m and m.group(1).lower() in MONTHS_:
+            out[str(ccn)] = (f'Closed {m.group(1).title()} {m.group(2)}', f'{m.group(2)}-{MONTHS_.index(m.group(1).lower()) + 1:02d}-01')
+    for c, t in (cfg.get('closed_seed') or {}).items(): take(c, t)
+    for r in mp: take(r.get('ccn'), r.get('note'))
+    return out
+
 # ------------------------------------------------------------------ sale timing and outcomes
 SALE_TYPES = ('Ownership/operator change', 'Corporate parent change (multi-facility deal)', 'Estate / internal ownership restructuring')
 MET = dict(overall='overall_rating', hi='health_inspection_rating', staffing='staffing_rating', qm='qm_rating', hours='reported_total_nurse_staffing_hours_per_resident_per_day',
@@ -694,10 +709,17 @@ def build_public_data(M, S, val, cec, mp, ccn_of, fn, cfg):
     for r in M['ev_other'][M['ev_other'].category == 'Left CMS data'].itertuples():
         if not any(e['kind'] == 'closed' for e in events_by.get(r.ccn, [])):
             ev_add(r.ccn, dict(date=r.snap, kind='cms', label='No longer in the CMS files', who='closed, merged or decertified; the data does not say which', buyer=None, outcome=None, src='CMS Care Compare files (first monthly file without the home)', date_note='First CMS file without the home'))
+    closed_map = closed_notes(mp, cfg)
+    for c_, (lab_c, d_c) in closed_map.items():
+        if c_ in fac.index and not any(e['kind'] == 'closed' for e in events_by.get(c_, [])):
+            ev_add(c_, dict(date=d_c, kind='closed', cec='', label=lab_c, who='', buyer=None, outcome=None, src='Note from the workbook owner', date_note='Month from the workbook note'))
     hu, pu = M['hu'], M['pu']
     facs = []; cur = fac
     for c in M['order']:
         row = fac.loc[c]; d = piv[c]; lr = d.iloc[-1]
+        if c in closed_map:   # a closed home CMS still lists: show it as of the last CMS file before it closed
+            upto = pd.Timestamp(closed_map[c][1]) + pd.offsets.MonthEnd(0); d_b = d[pd.to_datetime(d.index) <= upto]
+            if len(d_b): lr = d_b.iloc[-1]
         def ser(col, sc=1.0, nd=2): return [(_r(d[col].get(s) * sc, nd) if nz(d[col].get(s)) is not None else None) for s in dates]
         yrs = M['years']
         def ann(df): return [int(sum(df.loc[c, q] for q in M['qpairs'] if q[0] == y and nz(df.loc[c, q]) is not None)) for y in yrs]
@@ -705,7 +727,7 @@ def build_public_data(M, S, val, cec, mp, ccn_of, fn, cfg):
                    beds=_r(lr.number_of_certified_beds, 0), owner=row['operator'], chain=nz(row['chain']), ownership_type=nz(lr.ownership_type), sff=nz(lr.special_focus_status), abuse=(str(nz(lr.abuse_icon)).upper() == 'Y'),
                    cms_name=row['cms_name'], former=[dict(name=x['name'], src=x['src'], to=x['last']) for x in fn.get(c, [])],
                    now=dict(overall=_r(lr.overall_rating, 0), hi=_r(lr.health_inspection_rating, 0), staffing=_r(lr.staffing_rating, 0), qm=_r(lr.qm_rating, 0), hours=_r(lr.reported_total_nurse_staffing_hours_per_resident_per_day, 2),
-                            rn=_r(lr.reported_rn_staffing_hours_per_resident_per_day, 2), turnover=_r(lr.total_nursing_staff_turnover, 0), asof=row['last_seen']),
+                            rn=_r(lr.reported_rn_staffing_hours_per_resident_per_day, 2), turnover=_r(lr.total_nursing_staff_turnover, 0), asof=(str(pd.Timestamp(lr.name).date()) if c in closed_map else row['last_seen'])),
                    s=dict(overall=ser('overall_rating', 1, 0), hi=ser('health_inspection_rating', 1, 0), staffing=ser('staffing_rating', 1, 0), qm=ser('qm_rating', 1, 0), hours=ser('reported_total_nurse_staffing_hours_per_resident_per_day', 1, 2),
                           rn=ser('reported_rn_staffing_hours_per_resident_per_day', 1, 2), turnover=ser('total_nursing_staff_turnover', 1, 0),
                           tf=[(1 if (s_ in d.index and bool(d['turn_flag'].get(s_))) else 0) for s_ in dates],
@@ -790,7 +812,7 @@ def build_public_data(M, S, val, cec, mp, ccn_of, fn, cfg):
     first_i = 0
     head = dict(n_now=st['n'][-1], n_then=st['n'][0], low_now=round(low(ov1, st['nr'][-1]) * 100), low_then=round(low(ov0, st['nr'][0]) * 100), avg_now=st['avg_overall'][-1], avg_then=st['avg_overall'][0],
                 hours_now=st['avg_hours'][-1], hours_then=st['avg_hours'][0], rn_now=st['avg_rn'][-1], rn_then=st['avg_rn'][0], turnover_now=st['avg_turnover'][-1],
-                sales_since=int(len([r for r in rows if r['date'] and r['date'] >= dates[0] and r['outcome'] != 'Pending'])), homes_left=int((~fac.active).sum()))
+                sales_since=int(len([r for r in rows if r['date'] and r['date'] >= dates[0] and r['outcome'] != 'Pending'])), homes_left=int((fac['last_seen'] != fac['last_seen'].max()).sum()))   # left the CMS files (a closed home CMS still lists is not counted here)
     pyr = {}
     for r in rows:
         if r['date'] and r['date'] >= dates[0] and r['outcome'] != 'Pending': pyr[int(r['date'][:4])] = pyr.get(int(r['date'][:4]), 0) + 1
@@ -1389,7 +1411,10 @@ def run(out_dir, cec_path=None, config=None, std_dir=None, verbose=True):
     say(f'  {len(M["snaps"])} monthly files, {len(M["fac"])} facilities, latest {M["latest"]}'); say('Reading CEC workbook:', os.path.basename(src)); wb = openpyxl.load_workbook(src); cec = read_cec(wb)
     if not cec['overrides_present']:
         cec['overrides'] = {c: dict(treat=t, date=pd.Timestamp(d) if d else None, label=l, note=n) for c, t, d, l, n in cfg.get('event_overrides_seed', [])}
-    mp = build_ccn_map(cec, M); ccn_of = {r['name']: r['ccn'] for r in mp}; S, val, snaps_by = compute_sales(M, cec, ccn_of); fn = former_names(M, cec, ccn_of)
+    mp = build_ccn_map(cec, M); ccn_of = {r['name']: r['ccn'] for r in mp}
+    for c_, (lab_c, _d_c) in closed_notes(mp, cfg).items():   # closed homes CMS still lists
+        if c_ in M['fac'].index: M['fac'].loc[c_, 'active'] = False; M['fac'].loc[c_, 'status'] = lab_c
+    S, val, snaps_by = compute_sales(M, cec, ccn_of); fn = former_names(M, cec, ccn_of)
     say(f'  {len(cec["tracker"])} tracker rows, {sum(1 for r in mp if not r["ccn"])} facilities with no CCN, {int(S.before.notna().sum())} sales with a CMS "before" snapshot')
     D = build_public_data(M, S, val, cec, mp, ccn_of, fn, cfg); page = build_page(D, os.path.join(pub_dir, 'index.html')); say('Public page:', page)
     say('Writing workbook...')
@@ -1844,7 +1869,7 @@ const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\
 function facSearch() {
   const q = norm($('#fac-q').value), ul = $('#fac-results'); ul.replaceChildren(); if (q.length < 2) { ul.classList.add('hidden'); return; }
   const hits = FAC.filter(f => norm([f.name, f.town, f.cms_name, f.owner, ...(f.former || []).map(x => x.name)].join(' ')).includes(q)).slice(0, 12);
-  hits.forEach(f => { const fm = (f.former || []).find(x => norm(x.name).includes(q) && !norm(f.name).includes(q)); ul.append(el('li', {}, el('button', { onclick: () => { showFacility(f.id, true); ul.classList.add('hidden'); } }, el('div', {}, f.name), el('div', { class: 'sub', text: [f.town, f.active === false ? 'no longer in CMS files' : null, fm ? 'formerly ' + fm.name : null].filter(Boolean).join(' \u00B7 ') })))); });
+  hits.forEach(f => { const fm = (f.former || []).find(x => norm(x.name).includes(q) && !norm(f.name).includes(q)); ul.append(el('li', {}, el('button', { onclick: () => { showFacility(f.id, true); ul.classList.add('hidden'); } }, el('div', {}, f.name), el('div', { class: 'sub', text: [f.town, f.active === false ? (String(f.status || '').startsWith('Closed') ? f.status : 'no longer in CMS files') : null, fm ? 'formerly ' + fm.name : null].filter(Boolean).join(' \u00B7 ') })))); });
   if (!hits.length) ul.append(el('li', {}, el('div', { style: 'padding:8px 12px', text: 'No homes match.' }))); ul.classList.remove('hidden');
 }
 $('#fac-q').addEventListener('input', facSearch);
